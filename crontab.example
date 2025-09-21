@@ -1,0 +1,26 @@
+# Crontab configuration for Hang Seng API
+#
+# To install these cron jobs:
+# 1. Copy this file: cp crontab.example crontab.local
+# 2. Edit paths as needed
+# 3. Install: crontab crontab.local
+# 4. Verify: crontab -l
+
+# Environment variables
+SHELL=/bin/bash
+PATH=/usr/local/bin:/usr/bin:/bin
+
+# Update Chinese Calendar daily at 12:00 AM HKT
+# Fetches data for today and next 7 days
+0 0 * * * cd /Users/tonyvoon/Documents/Repo/hangseng/hangseng-api && npm run update-calendar >> logs/calendar-cron.log 2>&1
+
+# Update Hang Seng Index data every weekday at 5:00 PM HKT (after market close)
+0 17 * * 1-5 cd /Users/tonyvoon/Documents/Repo/hangseng/hangseng-api && npm run update-hangseng >> logs/hangseng-cron.log 2>&1
+
+# Weekly full calendar sync (Sundays at 2:00 AM)
+# Updates the entire current month
+0 2 * * 0 cd /Users/tonyvoon/Documents/Repo/hangseng/hangseng-api && npm run update-calendar -- --from $(date +\%Y-\%m-01) --to $(date -d "$(date +\%Y-\%m-01) +1 month -1 day" +\%Y-\%m-\%d) >> logs/calendar-weekly.log 2>&1
+
+# Monthly full year sync (1st of each month at 3:00 AM)
+# Updates the entire current year
+0 3 1 * * cd /Users/tonyvoon/Documents/Repo/hangseng/hangseng-api && npm run update-calendar -- --year $(date +\%Y) >> logs/calendar-monthly.log 2>&1
