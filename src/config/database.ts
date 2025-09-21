@@ -9,6 +9,9 @@ export const pool = new Pool({
   database: process.env.DB_NAME || 'hangseng_db',
   user: process.env.DB_USER || 'tonyvoon',
   password: process.env.DB_PASSWORD || '',
+  ssl: process.env.DB_HOST && process.env.DB_HOST !== 'localhost'
+    ? { rejectUnauthorized: false }
+    : undefined,
 });
 
 export const initDatabase = async (): Promise<void> => {
