@@ -33,10 +33,23 @@ export class CombinedDataService {
         pool.query(hangsengQuery, [dateString])
       ]);
 
+      let hangsengData = hangsengResult.rows[0] || null;
+
+      // If we have Hang Seng data, add the daily change calculation
+      if (hangsengData) {
+        const previousClose = await this.getPreviousTradingDayClose(date);
+        hangsengData = {
+          ...hangsengData,
+          previousClose: previousClose,
+          dailyChange: previousClose ? hangsengData.close - previousClose : null,
+          dailyChangePercent: previousClose ? ((hangsengData.close - previousClose) / previousClose * 100).toFixed(2) : null
+        };
+      }
+
       return {
         date: dateString,
         calendar: calendarResult.rows[0]?.data || null,
-        hangseng: hangsengResult.rows[0] || null
+        hangseng: hangsengData
       };
     } catch (error) {
       console.error('Error fetching combined data:', error);
@@ -111,35 +124,87 @@ export class CombinedDataService {
   async getCombinedDataWithAnalysis(date: Date): Promise<any> {
     const combinedData = await this.getCombinedDataForDate(date);
 
+    // Get previous trading day's close for daily change calculation
+    let previousClose = null;
+    if (combinedData.hangseng) {
+      previousClose = await this.getPreviousTradingDayClose(date);
+    }
+
     // Add analysis if both data exist
     if (combinedData.calendar && combinedData.hangseng) {
       const analysis: any = {
         ...combinedData,
+        hangseng: {
+          ...combinedData.hangseng,
+          previousClose: previousClose,
+          dailyChange: previousClose ? combinedData.hangseng.close - previousClose : null,
+          dailyChangePercent: previousClose ? ((combinedData.hangseng.close - previousClose) / previousClose * 100).toFixed(2) : null
+        },
         analysis: {
-          marketPerformance: this.analyzeMarketPerformance(combinedData.hangseng),
+          marketPerformance: this.analyzeMarketPerformance(combinedData.hangseng, previousClose),
           lunarSignificance: this.analyzeLunarSignificance(combinedData.calendar),
           auspiciousForTrading: this.checkAuspiciousForTrading(combinedData.calendar)
         }
       };
 
       return analysis;
+    } else if (combinedData.hangseng) {
+      // Even if no calendar data, still add the daily change info
+      return {
+        ...combinedData,
+        hangseng: {
+          ...combinedData.hangseng,
+          previousClose: previousClose,
+          dailyChange: previousClose ? combinedData.hangseng.close - previousClose : null,
+          dailyChangePercent: previousClose ? ((combinedData.hangseng.close - previousClose) / previousClose * 100).toFixed(2) : null
+        }
+      };
     }
 
     return combinedData;
   }
 
-  private analyzeMarketPerformance(hangsengData: any): any {
+  async getPreviousTradingDayClose(date: Date): Promise<number | null> {
+    const dateString = date.toISOString().split('T')[0];
+
+    // Get the most recent trading day before the given date
+    const query = `
+      SELECT close
+      FROM hangseng_index
+      WHERE DATE(date) < $1
+      ORDER BY date DESC
+      LIMIT 1
+    `;
+
+    try {
+      const result = await pool.query(query, [dateString]);
+      return result.rows[0]?.close || null;
+    } catch (error) {
+      console.error('Error fetching previous trading day close:', error);
+      return null;
+    }
+  }
+
+  private analyzeMarketPerformance(hangsengData: any, previousClose: number | null): any {
     if (!hangsengData) return null;
 
-    const change = hangsengData.close - hangsengData.open;
-    const changePercent = (change / hangsengData.open) * 100;
+    // Use previous close for daily change if available, otherwise fall back to intraday change
+    const dailyChange = previousClose ? hangsengData.close - previousClose : hangsengData.close - hangsengData.open;
+    const dailyChangePercent = previousClose
+      ? (dailyChange / previousClose) * 100
+      : (dailyChange / hangsengData.open) * 100;
+
+    const intradayChange = hangsengData.close - hangsengData.open;
+    const intradayChangePercent = (intradayChange / hangsengData.open) * 100;
     const volatility = ((hangsengData.high - hangsengData.low) / hangsengData.low) * 100;
 
     return {
-      change,
-      changePercent: changePercent.toFixed(2),
+      dailyChange,
+      dailyChangePercent: dailyChangePercent.toFixed(2),
+      intradayChange,
+      intradayChangePercent: intradayChangePercent.toFixed(2),
       volatility: volatility.toFixed(2),
-      trend: change > 0 ? 'bullish' : change < 0 ? 'bearish' : 'neutral',
+      trend: dailyChange > 0 ? 'bullish' : dailyChange < 0 ? 'bearish' : 'neutral',
       volumeLevel: this.categorizeVolume(hangsengData.volume)
     };
   }
